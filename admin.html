@@ -1,0 +1,384 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Session Admin</title>
+<script src="https://cdn.jsdelivr.net/npm/livekit-client/dist/livekit-client.umd.min.js"></script>
+<style>
+  :root { --bg:#f4f6f9; --card:#fff; --ink:#18202a; --muted:#5f6b7a; --line:#dde3ea; --accent:#2457d6; --ok:#1a7f45; --bad:#c0392b; --warn:#b26a00; }
+  * { box-sizing:border-box; }
+  body { margin:0; font:14px/1.5 system-ui, "Segoe UI", sans-serif; background:var(--bg); color:var(--ink); }
+  header { display:flex; align-items:center; gap:12px; padding:12px 16px; background:#18202a; color:#fff; }
+  header h1 { font-size:16px; margin:0; font-weight:600; }
+  header .grow { flex:1; }
+  main { display:grid; grid-template-columns:minmax(0,1.6fr) minmax(0,1fr); gap:14px; padding:14px 16px 30px; max-width:1400px; margin:0 auto; }
+  @media (max-width:900px) { main { grid-template-columns:1fr; } }
+  .col { display:flex; flex-direction:column; gap:14px; min-width:0; }
+  .card { background:var(--card); border:1px solid var(--line); border-radius:10px; padding:14px; }
+  .card h2 { font-size:14px; margin:0 0 10px; display:flex; align-items:center; gap:8px; }
+  label { display:block; font-size:12px; color:var(--muted); margin:8px 0 4px; }
+  input, textarea { width:100%; padding:8px 10px; border:1px solid var(--line); border-radius:8px; font:inherit; }
+  button { padding:8px 12px; border:0; border-radius:8px; background:var(--accent); color:#fff; font:inherit; cursor:pointer; }
+  button.secondary { background:#e8edf4; color:var(--ink); }
+  button.danger { background:var(--bad); }
+  button.small { padding:4px 9px; font-size:12px; }
+  button:disabled { opacity:.45; cursor:default; }
+  .row { display:flex; gap:8px; flex-wrap:wrap; align-items:center; }
+  .hidden { display:none !important; }
+  .pill { background:#e8edf4; color:var(--ink); border-radius:99px; padding:2px 10px; font-size:12px; }
+  .pill.live { background:#d8f3e3; color:var(--ok); }
+  .pill.off { background:#3a4350; color:#cfd6df; }
+  .ok { color:var(--ok); } .bad { color:var(--bad); } .muted { color:var(--muted); }
+  #stage { position:relative; background:#0c1016; border-radius:8px; min-height:220px; display:flex; align-items:center; justify-content:center; color:#8a96a6; overflow:hidden; }
+  #stage video { width:100%; max-height:60vh; object-fit:contain; display:block; }
+  #people { max-height:420px; overflow:auto; border:1px solid var(--line); border-radius:8px; }
+  table { width:100%; border-collapse:collapse; }
+  th, td { text-align:left; padding:7px 8px; border-bottom:1px solid var(--line); font-size:13px; vertical-align:middle; }
+  th { position:sticky; top:0; background:#f8fafc; font-weight:600; font-size:12px; color:var(--muted); }
+  td.actions { white-space:nowrap; text-align:right; }
+  .speaking { color:var(--ok); font-weight:600; }
+  #queries { max-height:360px; overflow:auto; display:flex; flex-direction:column; gap:8px; }
+  .q { border:1px solid var(--line); border-radius:8px; padding:8px 10px; }
+  .q .meta { font-size:12px; color:var(--muted); }
+  #log { font:12px/1.5 Consolas, monospace; background:#11151a; color:#d7dee8; border-radius:8px; padding:10px; height:140px; overflow:auto; white-space:pre-wrap; }
+</style>
+</head>
+<body>
+<header>
+  <h1>Knowledge Session – Admin</h1>
+  <span class="grow"></span>
+  <span id="sessPill" class="pill off">No session</span>
+  <span id="connPill" class="pill off">Not connected</span>
+</header>
+
+<main>
+  <div class="col">
+    <!-- Sign in -->
+    <section id="loginCard" class="card">
+      <h2>Sign in</h2>
+      <label for="api">Apps Script web app URL</label>
+      <input id="api">
+      <label for="tok">Your admin token (Admins tab, column C)</label>
+      <input id="tok" type="password" autocomplete="off">
+      <div class="row" style="margin-top:10px">
+        <button id="btnCheck">Sign in</button>
+        <span id="loginStatus" class="muted"></span>
+      </div>
+      <div id="otpBox" class="hidden">
+        <label for="otp">6-digit code sent to <span id="hint"></span></label>
+        <div class="row"><input id="otp" maxlength="6" inputmode="numeric" style="max-width:160px"><button id="btnVerify">Verify</button></div>
+      </div>
+    </section>
+
+    <!-- Session controls -->
+    <section id="controlCard" class="card hidden">
+      <h2>Session <span id="adminName" class="pill"></span></h2>
+      <div class="row">
+        <button id="btnStart">Start session &amp; join</button>
+        <button id="btnJoin" class="secondary">Join running session</button>
+        <button id="btnLeave" class="secondary">Leave (session continues)</button>
+        <button id="btnEnd" class="danger">End session for everyone</button>
+      </div>
+      <div class="row" style="margin-top:12px">
+        <strong>Present:</strong>
+        <button id="btnMic" disabled>Microphone on</button>
+        <button id="btnScreen" disabled>Share screen</button>
+        <span class="muted" style="font-size:12px">Screen share quality is fixed to stay inside the free data limit.</span>
+      </div>
+      <div class="row" style="margin-top:12px">
+        <strong>Chat:</strong>
+        <span id="chatState" class="pill">Closed</span>
+        <button id="btnChat" disabled>Open chat</button>
+      </div>
+    </section>
+
+    <!-- Stage -->
+    <section id="stageCard" class="card hidden">
+      <h2>What candidates see</h2>
+      <div id="stage">No one is sharing a screen</div>
+    </section>
+
+    <section class="card">
+      <h2>Log</h2>
+      <div id="log"></div>
+    </section>
+  </div>
+
+  <div class="col">
+    <!-- Candidates -->
+    <section id="peopleCard" class="card hidden">
+      <h2>Candidates <span id="count" class="pill">0</span></h2>
+      <input id="search" placeholder="Search by name or ID">
+      <div id="people" style="margin-top:8px">
+        <table>
+          <thead><tr><th>Candidate</th><th>Joined</th><th>Mic</th><th></th></tr></thead>
+          <tbody id="peopleBody"></tbody>
+        </table>
+      </div>
+    </section>
+
+    <!-- Queries -->
+    <section id="queryCard" class="card hidden">
+      <h2>Queries <span id="qCount" class="pill">0</span></h2>
+      <p class="muted" style="margin:0 0 8px;font-size:12px">Only admins see these. Candidates never see each other's messages.</p>
+      <div id="queries"><span class="muted">No queries yet.</span></div>
+    </section>
+  </div>
+</main>
+
+<script>
+const DEFAULT_API = 'https://script.google.com/macros/s/AKfycbwsZT3aeJ10b2O6-lmCAN8PXpxkvmYzS0vdlwVIgM5piiFJtRe-LudEZSU65RiKF31G/exec';
+const SCREEN = {
+  capture: { audio: false, contentHint: 'detail', resolution: { width: 1920, height: 1080, frameRate: 10 } },
+  publish: { screenShareEncoding: { maxBitrate: 900000, maxFramerate: 10 } }
+};
+const $ = id => document.getElementById(id);
+const LK = window.LivekitClient;
+const store = {
+  get(k) { try { return localStorage.getItem(k); } catch (e) { return null; } },
+  set(k, v) { try { localStorage.setItem(k, v); } catch (e) {} }
+};
+const esc = s => String(s == null ? '' : s).replace(/[&<>"']/g, c => ({ '&':'&amp;', '<':'&lt;', '>':'&gt;', '"':'&quot;', "'":'&#39;' }[c]));
+
+let deviceId = store.get('ks_device');
+if (!deviceId) { deviceId = 'DEV-' + crypto.randomUUID(); store.set('ks_device', deviceId); }
+$('api').value = store.get('ks_api') || DEFAULT_API;
+$('tok').value = store.get('ks_admin_token') || '';
+
+let room = null, session = null, micOn = false, screenOn = false, chatOpen = false;
+let lastQueryRow = 1, queryCount = 0, pollTimer = null, renderTimer = null;
+
+const ERR = {
+  invalid_link: 'Token not recognised.', other_device: 'This token is locked to another laptop.',
+  code_expired: 'Code expired – sign in again.', wrong_code: 'Wrong code.', too_many_tries: 'Too many wrong codes – sign in again.',
+  not_admin: 'Not an admin token, or this laptop is not verified.', no_session_live: 'No session is live.',
+  removed: 'Removed from this session.', server_error: 'Server error – see the log.'
+};
+
+function log(msg) { $('log').textContent += new Date().toLocaleTimeString() + '  ' + msg + '\n'; $('log').scrollTop = 1e9; }
+
+async function api(action, extra) {
+  const body = Object.assign({ action, token: $('tok').value.trim(), deviceId }, extra || {});
+  const res = await fetch($('api').value.trim(), {
+    method: 'POST', headers: { 'Content-Type': 'text/plain;charset=utf-8' }, body: JSON.stringify(body)
+  });
+  const data = await res.json();
+  if (!data.ok) log(action + ' failed: ' + (ERR[data.error] || data.error) + (data.detail ? ' (' + data.detail + ')' : ''));
+  return data;
+}
+
+// ---------- Sign in ----------
+$('btnCheck').onclick = async () => {
+  store.set('ks_api', $('api').value.trim());
+  $('loginStatus').textContent = 'Checking…';
+  try {
+    const r = await api('checkLink');
+    if (!r.ok) return ($('loginStatus').textContent = ERR[r.error] || r.error);
+    if (r.role && r.role !== 'admin') return ($('loginStatus').textContent = 'This is a candidate token, not an admin token.');
+    if (r.bound) return signedIn();
+    $('hint').textContent = r.emailHint || 'your email';
+    $('otpBox').classList.remove('hidden');
+    $('loginStatus').textContent = 'Code sent.';
+  } catch (e) { $('loginStatus').textContent = 'Could not reach Apps Script: ' + e.message; }
+};
+
+$('btnVerify').onclick = async () => {
+  const r = await api('verifyOtp', { otp: $('otp').value.trim() });
+  if (!r.ok) return ($('loginStatus').textContent = (ERR[r.error] || r.error) + (r.triesLeft ? ' Tries left: ' + r.triesLeft : ''));
+  signedIn();
+};
+
+async function signedIn() {
+  store.set('ks_admin_token', $('tok').value.trim());
+  const r = await api('adminSession');
+  if (!r.ok) return ($('loginStatus').textContent = ERR[r.error] || r.error);
+  $('loginCard').classList.add('hidden');
+  ['controlCard', 'stageCard', 'peopleCard', 'queryCard'].forEach(id => $(id).classList.remove('hidden'));
+  $('adminName').textContent = r.admin;
+  setSession(r.session);
+  log('Signed in as ' + r.admin);
+  if (!pollTimer) pollTimer = setInterval(pollQueries, 5000);
+}
+
+function setSession(s) {
+  session = s;
+  $('sessPill').textContent = s ? 'Live: ' + s.room : 'No session';
+  $('sessPill').className = 'pill ' + (s ? 'live' : 'off');
+  $('btnStart').disabled = !!s && !!room;
+  $('btnJoin').disabled = !s || !!room;
+  $('btnLeave').disabled = !room;
+  $('btnEnd').disabled = !s;
+  $('btnChat').disabled = !s;
+  setChatUI(s ? s.chatOpen : false);
+}
+
+function setChatUI(open) {
+  chatOpen = !!open;
+  $('chatState').textContent = chatOpen ? 'Open' : 'Closed';
+  $('chatState').className = 'pill ' + (chatOpen ? 'live' : '');
+  $('btnChat').textContent = chatOpen ? 'Close chat' : 'Open chat';
+}
+
+// ---------- Session ----------
+$('btnStart').onclick = async () => {
+  const r = await api('adminStart');
+  if (!r.ok) return;
+  setSession(r.session);
+  log('Session live: ' + r.session.room);
+  if (!room) joinRoom();
+};
+
+$('btnJoin').onclick = () => joinRoom();
+
+$('btnLeave').onclick = () => { if (room) room.disconnect(); };
+
+$('btnEnd').onclick = async () => {
+  if (!confirm('End the session for everyone? All candidates will be disconnected.')) return;
+  const r = await api('adminEnd');
+  if (!r.ok) return;
+  log('Session ended');
+  if (room) room.disconnect();
+  setSession(null);
+};
+
+async function joinRoom() {
+  const r = await api('join');
+  if (!r.ok) return;
+  room = new LK.Room({ adaptiveStream: true, dynacast: true });
+
+  room.on(LK.RoomEvent.TrackSubscribed, (track, pub, p) => {
+    const el = track.attach();
+    if (track.kind === 'video') { $('stage').textContent = ''; $('stage').appendChild(el); }
+    else { el.classList.add('hidden'); document.body.appendChild(el); }
+    log('Receiving ' + track.source + ' from ' + p.name);
+  });
+  room.on(LK.RoomEvent.TrackUnsubscribed, track => {
+    track.detach().forEach(el => el.remove());
+    if (!$('stage').querySelector('video')) $('stage').textContent = 'No one is sharing a screen';
+  });
+  room.on(LK.RoomEvent.LocalTrackUnpublished, pub => {
+    if (pub.source === LK.Track.Source.ScreenShare) { screenOn = false; $('btnScreen').textContent = 'Share screen'; log('Screen share stopped'); }
+    if (pub.source === LK.Track.Source.Microphone) { micOn = false; $('btnMic').textContent = 'Microphone on'; }
+  });
+  room.on(LK.RoomEvent.RoomMetadataChanged, md => { try { setChatUI(JSON.parse(md || '{}').chatOpen); } catch (e) {} });
+  [LK.RoomEvent.ParticipantConnected, LK.RoomEvent.ParticipantDisconnected, LK.RoomEvent.ParticipantPermissionsChanged,
+   LK.RoomEvent.TrackPublished, LK.RoomEvent.TrackUnpublished, LK.RoomEvent.TrackMuted, LK.RoomEvent.TrackUnmuted,
+   LK.RoomEvent.ActiveSpeakersChanged].forEach(ev => room.on(ev, scheduleRender));
+  room.on(LK.RoomEvent.Disconnected, () => {
+    log('Disconnected from the room');
+    room = null; micOn = false; screenOn = false;
+    $('connPill').textContent = 'Not connected'; $('connPill').className = 'pill off';
+    $('btnMic').disabled = true; $('btnScreen').disabled = true;
+    $('btnMic').textContent = 'Microphone on'; $('btnScreen').textContent = 'Share screen';
+    setSession(session); scheduleRender();
+  });
+
+  try {
+    await room.connect(r.url, r.token);
+    await room.startAudio();
+    $('connPill').textContent = 'Connected'; $('connPill').className = 'pill live';
+    $('btnMic').disabled = false; $('btnScreen').disabled = false;
+    setSession(session);
+    log('Joined ' + r.room);
+    scheduleRender();
+  } catch (e) { log('Could not connect: ' + e.message); room = null; }
+}
+
+// ---------- Present ----------
+$('btnMic').onclick = async () => {
+  micOn = !micOn;
+  try {
+    await room.localParticipant.setMicrophoneEnabled(micOn);
+    $('btnMic').textContent = micOn ? 'Microphone off' : 'Microphone on';
+    log('Microphone ' + (micOn ? 'on' : 'off'));
+  } catch (e) { micOn = false; log('Microphone failed: ' + e.message); }
+};
+
+$('btnScreen').onclick = async () => {
+  screenOn = !screenOn;
+  try {
+    await room.localParticipant.setScreenShareEnabled(screenOn, SCREEN.capture, SCREEN.publish);
+    $('btnScreen').textContent = screenOn ? 'Stop sharing' : 'Share screen';
+    log('Screen share ' + (screenOn ? 'on' : 'off'));
+  } catch (e) { screenOn = false; $('btnScreen').textContent = 'Share screen'; log('Screen share failed: ' + e.message); }
+};
+
+// ---------- Chat ----------
+$('btnChat').onclick = async () => {
+  const r = await api('setChat', { open: !chatOpen });
+  if (r.ok) { setChatUI(r.chatOpen); log('Chat ' + (r.chatOpen ? 'opened' : 'closed')); }
+};
+
+async function pollQueries() {
+  if (!session) return;
+  try {
+    const r = await api('getQueries', { after: lastQueryRow });
+    if (!r.ok) return;
+    lastQueryRow = r.last;
+    if (!r.items.length) return;
+    if (queryCount === 0) $('queries').textContent = '';
+    r.items.forEach(q => {
+      const div = document.createElement('div');
+      div.className = 'q';
+      div.innerHTML = '<div class="meta">' + esc(new Date(q.time).toLocaleTimeString()) + ' · ' + esc(q.name) + ' (' + esc(q.id) + ')</div><div>' + esc(q.message) + '</div>';
+      $('queries').appendChild(div);
+      queryCount++;
+    });
+    $('qCount').textContent = queryCount;
+    $('queries').scrollTop = 1e9;
+  } catch (e) { /* network blip – try again next time */ }
+}
+
+// ---------- Candidate list ----------
+function scheduleRender() { clearTimeout(renderTimer); renderTimer = setTimeout(renderPeople, 300); }
+
+function renderPeople() {
+  const body = $('peopleBody');
+  if (!room) { body.innerHTML = ''; $('count').textContent = '0'; return; }
+  const term = $('search').value.trim().toLowerCase();
+  const list = Array.from(room.remoteParticipants.values()).filter(p => /^C\d+$/.test(p.identity));
+  $('count').textContent = list.length;
+  const shown = list
+    .filter(p => !term || (p.name || '').toLowerCase().includes(term) || p.identity.toLowerCase().includes(term))
+    .sort((a, b) => (a.name || '').localeCompare(b.name || ''));
+
+  body.innerHTML = shown.map(p => {
+    const allowed = !!(p.permissions && p.permissions.canPublish);
+    const speaking = p.isMicrophoneEnabled;
+    const joined = p.joinedAt ? new Date(p.joinedAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) : '';
+    const mic = allowed ? (speaking ? '<span class="speaking">Speaking</span>' : '<span class="ok">Allowed</span>') : '<span class="muted">Muted</span>';
+    return '<tr><td>' + esc(p.name) + '<br><span class="muted" style="font-size:12px">' + esc(p.identity) + '</span></td>' +
+      '<td>' + esc(joined) + '</td><td>' + mic + '</td>' +
+      '<td class="actions">' +
+      (allowed
+        ? '<button class="small secondary" data-act="revoke" data-id="' + esc(p.identity) + '">Revoke mic</button> '
+        : '<button class="small" data-act="allow" data-id="' + esc(p.identity) + '">Allow mic</button> ') +
+      '<button class="small danger" data-act="remove" data-id="' + esc(p.identity) + '" data-name="' + esc(p.name) + '">Remove</button></td></tr>';
+  }).join('') || '<tr><td colspan="4" class="muted">' + (list.length ? 'No match' : 'No candidates connected yet') + '</td></tr>';
+}
+
+$('search').oninput = scheduleRender;
+
+$('peopleBody').onclick = async ev => {
+  const b = ev.target.closest('button'); if (!b) return;
+  const id = b.dataset.id;
+  b.disabled = true;
+  if (b.dataset.act === 'allow') {
+    const r = await api('setMic', { identity: id, allow: true });
+    if (r.ok) log('Mic allowed for ' + id + (r.revoked ? ' (revoked from ' + r.revoked + ')' : ''));
+  } else if (b.dataset.act === 'revoke') {
+    const r = await api('setMic', { identity: id, allow: false });
+    if (r.ok) log('Mic revoked for ' + id);
+  } else if (b.dataset.act === 'remove') {
+    if (confirm('Remove ' + b.dataset.name + ' (' + id + ') from this session? They cannot rejoin this session.')) {
+      const r = await api('removeParticipant', { identity: id, name: b.dataset.name, reason: 'Removed by admin' });
+      if (r.ok) log('Removed ' + id);
+    }
+  }
+  b.disabled = false;
+  scheduleRender();
+};
+</script>
+</body>
+</html>
