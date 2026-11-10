@@ -176,7 +176,10 @@ async function api(action, extra) {
   const res = await fetch($('api').value.trim(), {
     method: 'POST', headers: { 'Content-Type': 'text/plain;charset=utf-8' }, body: JSON.stringify(body)
   });
-  const data = await res.json();
+  const text = await res.text();
+  let data;
+  try { data = JSON.parse(text); }
+  catch (e) { throw new Error('Apps Script sent an unexpected reply: ' + text.replace(/<[^>]+>/g, ' ').replace(/\s+/g, ' ').trim().slice(0, 160)); }
   if (!data.ok) log(action + ' failed: ' + (ERR[data.error] || data.error) + (data.detail ? ' (' + data.detail + ')' : ''));
   return data;
 }
@@ -269,6 +272,11 @@ function showData(used, free) {
 }
 
 $('btnAtt').onclick = async () => {
+  try { await downloadAttendance(); }
+  catch (e) { $('attMsg').textContent = 'Download failed: ' + e.message; log('Attendance download failed: ' + e.message); }
+};
+
+async function downloadAttendance() {
   $('attMsg').textContent = 'Preparing…';
   const r = await api('exportAttendance', { from: $('attFrom').value, to: $('attTo').value });
   if (!r.ok) return ($('attMsg').textContent = 'Could not load attendance.');
@@ -280,7 +288,7 @@ $('btnAtt').onclick = async () => {
   a.download = 'attendance_' + $('attFrom').value + (($('attTo').value !== $('attFrom').value) ? '_to_' + $('attTo').value : '') + '.csv';
   document.body.appendChild(a); a.click(); a.remove();
   $('attMsg').textContent = r.rows.length + ' rows downloaded.';
-};
+}
 
 async function joinRoom() {
   const r = await api('join');
