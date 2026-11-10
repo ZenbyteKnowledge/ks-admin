@@ -4,7 +4,7 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Session Admin</title>
-<script src="https://cdn.jsdelivr.net/npm/livekit-client/dist/livekit-client.umd.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/livekit-client@2/dist/livekit-client.umd.min.js"></script>
 <style>
   :root { --bg:#f4f6f9; --card:#fff; --ink:#18202a; --muted:#5f6b7a; --line:#dde3ea; --accent:#2457d6; --ok:#1a7f45; --bad:#c0392b; --warn:#b26a00; }
   * { box-sizing:border-box; }
@@ -48,6 +48,7 @@
 <header>
   <h1>Knowledge Session – Admin</h1>
   <span class="grow"></span>
+  <span id="dataPill" class="pill off" title="Estimated data used this month (free limit 10,000 GB)">Data: –</span>
   <span id="sessPill" class="pill off">No session</span>
   <span id="connPill" class="pill off">Not connected</span>
 </header>
@@ -97,6 +98,18 @@
     <section id="stageCard" class="card hidden">
       <h2>What candidates see</h2>
       <div id="stage">No one is sharing a screen</div>
+    </section>
+
+    <!-- Attendance -->
+    <section id="attCard" class="card hidden">
+      <h2>Attendance</h2>
+      <p class="muted" style="margin:0 0 8px;font-size:12px">Saved automatically when a session ends. Download opens in Excel.</p>
+      <div class="row">
+        <label for="attFrom" style="margin:0">From</label><input id="attFrom" type="date" style="max-width:170px">
+        <label for="attTo" style="margin:0">To</label><input id="attTo" type="date" style="max-width:170px">
+        <button id="btnAtt">Download attendance</button>
+        <span id="attMsg" class="muted"></span>
+      </div>
     </section>
 
     <section class="card">
@@ -194,9 +207,12 @@ async function signedIn() {
   const r = await api('adminSession');
   if (!r.ok) return ($('loginStatus').textContent = ERR[r.error] || r.error);
   $('loginCard').classList.add('hidden');
-  ['controlCard', 'stageCard', 'peopleCard', 'queryCard'].forEach(id => $(id).classList.remove('hidden'));
+  ['controlCard', 'stageCard', 'peopleCard', 'queryCard', 'attCard'].forEach(id => $(id).classList.remove('hidden'));
   $('adminName').textContent = r.admin;
   setSession(r.session);
+  showData(r.monthGB, r.freeGB);
+  const today = new Date().toLocaleDateString('en-CA');
+  $('attFrom').value = today; $('attTo').value = today;
   log('Signed in as ' + r.admin);
   if (!pollTimer) pollTimer = setInterval(pollQueries, 5000);
 }
@@ -238,8 +254,32 @@ $('btnEnd').onclick = async () => {
   const r = await api('adminEnd');
   if (!r.ok) return;
   log('Session ended');
+  if (r.attendance) log('Attendance saved: ' + r.attendance.present + ' present, ' + r.attendance.absent + ' absent');
   if (room) room.disconnect();
   setSession(null);
+  const info = await api('adminSession');
+  if (info.ok) showData(info.monthGB, info.freeGB);
+};
+
+function showData(used, free) {
+  if (used == null) return;
+  const pct = free ? Math.round(used * 100 / free) : 0;
+  $('dataPill').textContent = 'Data: ' + used.toLocaleString() + ' / ' + (free || 10000).toLocaleString() + ' GB';
+  $('dataPill').className = 'pill ' + (pct >= 90 ? 'off' : pct >= 70 ? '' : 'live');
+}
+
+$('btnAtt').onclick = async () => {
+  $('attMsg').textContent = 'Preparing…';
+  const r = await api('exportAttendance', { from: $('attFrom').value, to: $('attTo').value });
+  if (!r.ok) return ($('attMsg').textContent = 'Could not load attendance.');
+  if (!r.rows.length) return ($('attMsg').textContent = 'No attendance saved for those dates.');
+  const cell = v => '"' + String(v == null ? '' : v).replace(/"/g, '""') + '"';
+  const csv = '\uFEFF' + [r.headers].concat(r.rows).map(row => row.map(cell).join(',')).join('\r\n');
+  const a = document.createElement('a');
+  a.href = URL.createObjectURL(new Blob([csv], { type: 'text/csv;charset=utf-8' }));
+  a.download = 'attendance_' + $('attFrom').value + (($('attTo').value !== $('attFrom').value) ? '_to_' + $('attTo').value : '') + '.csv';
+  document.body.appendChild(a); a.click(); a.remove();
+  $('attMsg').textContent = r.rows.length + ' rows downloaded.';
 };
 
 async function joinRoom() {
