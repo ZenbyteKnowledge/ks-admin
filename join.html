@@ -1,0 +1,95 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="referrer" content="no-referrer">
+<title>Knowledge Session Invite</title>
+<style>
+  :root { --bg:#f4f6f9; --card:#fff; --ink:#18202a; --muted:#5f6b7a; --line:#dde3ea; --accent:#2457d6; --ok:#1a7f45; --bad:#c0392b; }
+  * { box-sizing:border-box; }
+  body { margin:0; font:15px/1.55 "Segoe UI", system-ui, sans-serif; background:var(--bg); color:var(--ink); }
+  main { max-width:620px; margin:0 auto; padding:28px 16px 40px; }
+  h1 { font-size:22px; margin:0 0 4px; }
+  .sub { color:var(--muted); margin:0 0 20px; }
+  .card { background:var(--card); border:1px solid var(--line); border-radius:12px; padding:18px; margin-bottom:14px; }
+  .step { display:flex; gap:14px; }
+  .num { flex:none; width:28px; height:28px; border-radius:50%; background:var(--accent); color:#fff; display:flex; align-items:center; justify-content:center; font-weight:700; }
+  h2 { font-size:16px; margin:2px 0 6px; }
+  p { margin:0 0 8px; }
+  .btn { display:inline-block; background:var(--accent); color:#fff; padding:10px 16px; border-radius:8px; text-decoration:none; border:0; font:inherit; cursor:pointer; }
+  .btn.secondary { background:#e8edf4; color:var(--ink); }
+  code { background:#f0f3f7; border:1px solid var(--line); border-radius:6px; padding:6px 8px; display:block; word-break:break-all; font-size:13px; margin:8px 0; }
+  .muted { color:var(--muted); font-size:13px; }
+  .bad { color:var(--bad); }
+  .hidden { display:none; }
+</style>
+</head>
+<body>
+<main>
+  <h1>Knowledge Session</h1>
+  <p class="sub">Your personal invite to the institute's daily knowledge session.</p>
+
+  <div id="noToken" class="card hidden">
+    <p class="bad"><b>This invite link is incomplete.</b></p>
+    <p>Open the link directly from your invite email. If it still does not work, ask the admins to resend your invite.</p>
+  </div>
+
+  <div id="steps">
+    <div class="card step">
+      <div class="num">1</div>
+      <div>
+        <h2>Install the app (first time only)</h2>
+        <p>Download and run the installer on your Windows laptop.</p>
+        <p><a id="dl" class="btn secondary" href="#">Download for Windows</a></p>
+        <p class="muted">If Windows shows <b>"Windows protected your PC"</b>, click <b>More info</b>, then <b>Run anyway</b>. The app opens when installation finishes.</p>
+      </div>
+    </div>
+
+    <div class="card step">
+      <div class="num">2</div>
+      <div>
+        <h2>Open your invite in the app</h2>
+        <p><button id="open" class="btn">Open Knowledge Session</button></p>
+        <p class="muted">If your browser asks to open "Knowledge Session", click <b>Open</b>. If nothing happens, open the app from your Desktop and paste this invite code:</p>
+        <code id="code"></code>
+        <button id="copy" class="btn secondary">Copy invite code</button> <span id="copied" class="muted"></span>
+      </div>
+    </div>
+
+    <div class="card step">
+      <div class="num">3</div>
+      <div>
+        <h2>Verify your laptop</h2>
+        <p>The first time, the app emails you a 6-digit code. Enter it to link this invite to your laptop. After that, just open the app at session time – it joins automatically.</p>
+      </div>
+    </div>
+
+    <p class="muted">This invite is personal and works on one laptop only. Session content is confidential: recording and screenshots are not allowed, and the app removes anyone running recording software.</p>
+  </div>
+</main>
+
+<script>
+  // Edit this one line if the installer address changes
+  const DOWNLOAD_URL = 'https://github.com/ZenbyteKnowledge/ks-admin/releases/latest/download/KnowledgeSession-Setup.exe';
+
+  // The token is in the # part of the link, so it is never sent to any web server
+  const m = /[#&]t=([a-f0-9]{20,80})/i.exec(location.hash);
+  const token = m ? m[1] : null;
+  document.getElementById('dl').href = DOWNLOAD_URL;
+
+  if (!token) {
+    document.getElementById('noToken').classList.remove('hidden');
+    document.getElementById('open').disabled = true;
+    document.getElementById('copy').disabled = true;
+  } else {
+    document.getElementById('code').textContent = token;
+    document.getElementById('open').onclick = () => { location.href = 'ksession://join?t=' + token; };
+    document.getElementById('copy').onclick = async () => {
+      try { await navigator.clipboard.writeText(token); document.getElementById('copied').textContent = 'Copied'; }
+      catch (e) { document.getElementById('copied').textContent = 'Select the code above and copy it'; }
+    };
+  }
+</script>
+</body>
+</html>
