@@ -41,19 +41,37 @@
   #queries { max-height:360px; overflow:auto; display:flex; flex-direction:column; gap:8px; }
   .q { border:1px solid var(--line); border-radius:8px; padding:8px 10px; }
   .q .meta { font-size:12px; color:var(--muted); }
+  .tabs { display:flex; gap:4px; margin-left:16px; }
+  .tabs button { background:transparent; color:#cfd6df; padding:6px 12px; }
+  .tabs button.on { background:#2e3846; color:#fff; }
+  #candView { display:block; max-width:1400px; }
+  #candView .card { margin-bottom:14px; }
+  .toolbar { display:flex; flex-wrap:wrap; gap:8px; align-items:center; }
+  .toolbar select, .toolbar input[type=number] { padding:7px 8px; border:1px solid var(--line); border-radius:8px; font:inherit; }
+  #candTableWrap { max-height:62vh; overflow:auto; border:1px solid var(--line); border-radius:8px; margin-top:10px; }
+  #candTable td, #candTable th { white-space:nowrap; }
+  #candTable td.email { white-space:normal; word-break:break-all; }
+  #candTable tr.sel td { background:#eef3ff; }
+  .tag { border-radius:99px; padding:1px 8px; font-size:12px; background:#e8edf4; }
+  .tag.ok { background:#d8f3e3; color:var(--ok); } .tag.bad { background:#fde3df; color:var(--bad); } .tag.wait { background:#fff1d6; color:var(--warn); }
+  #addBox { width:100%; min-height:90px; font:13px/1.5 Consolas, monospace; }
   #log { font:12px/1.5 Consolas, monospace; background:#11151a; color:#d7dee8; border-radius:8px; padding:10px; height:140px; overflow:auto; white-space:pre-wrap; }
 </style>
 </head>
 <body>
 <header>
   <h1>Knowledge Session – Admin</h1>
+  <nav id="tabs" class="tabs hidden">
+    <button id="tabSess" class="on">Live session</button>
+    <button id="tabCand">Candidates &amp; invites</button>
+  </nav>
   <span class="grow"></span>
   <span id="dataPill" class="pill off" title="Estimated data used this month (free limit 10,000 GB)">Data: –</span>
   <span id="sessPill" class="pill off">No session</span>
   <span id="connPill" class="pill off">Not connected</span>
 </header>
 
-<main>
+<main id="sessView">
   <div class="col">
     <!-- Sign in -->
     <section id="loginCard" class="card">
@@ -140,6 +158,57 @@
   </div>
 </main>
 
+<main id="candView" class="hidden">
+  <section class="card">
+    <h2>Candidates <span id="candCount" class="pill">0</span> <span id="quotaPill" class="pill"></span></h2>
+    <div class="toolbar">
+      <input id="candSearch" placeholder="Search name, email or ID" style="max-width:260px">
+      <select id="candFilter">
+        <option value="all">All candidates</option>
+        <option value="notinvited">Not invited yet</option>
+        <option value="queued">Queued (sending tomorrow)</option>
+        <option value="invited">Invited</option>
+        <option value="notlinked">Invited, laptop not verified</option>
+        <option value="blocked">Blocked</option>
+      </select>
+      <span class="muted">Select next</span>
+      <input id="pickN" type="number" min="1" value="100" style="width:80px">
+      <span class="muted">not invited</span>
+      <button id="btnPick" class="secondary">Select</button>
+      <button id="btnClearSel" class="secondary">Clear selection</button>
+      <button id="btnReload" class="secondary">Refresh</button>
+    </div>
+    <div class="toolbar" style="margin-top:10px">
+      <strong id="selCount">0 selected</strong>
+      <button id="actInvite">Send invite</button>
+      <button id="actResend" class="secondary">Resend invite</button>
+      <button id="actReset" class="secondary">Reset laptop</button>
+      <button id="actBlock" class="danger">Block</button>
+      <button id="actUnblock" class="secondary">Unblock</button>
+      <span id="candMsg" class="muted"></span>
+    </div>
+    <div id="candTableWrap">
+      <table id="candTable">
+        <thead><tr>
+          <th><input type="checkbox" id="selAll" title="Select all shown"></th>
+          <th>ID</th><th>Name</th><th>Email</th><th>Status</th><th>Invite</th><th>Laptop</th>
+        </tr></thead>
+        <tbody id="candBody"><tr><td colspan="7" class="muted">Loading…</td></tr></tbody>
+      </table>
+    </div>
+    <p class="muted" style="font-size:12px;margin:8px 0 0">Tip: click one box, then Shift + click another to select every row in between.
+      Invites over today's email limit are queued and sent automatically each morning.</p>
+  </section>
+
+  <section class="card">
+    <h2>Add candidates</h2>
+    <p class="muted" style="margin:0 0 8px;font-size:12px">One candidate per line: <b>Name, email</b> – or paste two columns (Name, Email) straight from Excel.
+      Duplicate emails are skipped. New candidates are not invited until you select them and click Send invite.</p>
+    <textarea id="addBox" placeholder="Priya Sharma, priya@example.com&#10;Arun Kumar, arun@example.com"></textarea>
+    <div class="row" style="margin-top:8px"><button id="btnAdd">Add candidates</button><span id="addMsg" class="muted"></span></div>
+  </section>
+</main>
+
 <script>
 const DEFAULT_API = 'https://script.google.com/macros/s/AKfycbwsZT3aeJ10b2O6-lmCAN8PXpxkvmYzS0vdlwVIgM5piiFJtRe-LudEZSU65RiKF31G/exec';
 const SCREEN = {
@@ -210,6 +279,7 @@ async function signedIn() {
   const r = await api('adminSession');
   if (!r.ok) return ($('loginStatus').textContent = ERR[r.error] || r.error);
   $('loginCard').classList.add('hidden');
+  $('tabs').classList.remove('hidden');
   ['controlCard', 'stageCard', 'peopleCard', 'queryCard', 'attCard'].forEach(id => $(id).classList.remove('hidden'));
   $('adminName').textContent = r.admin;
   setSession(r.session);
@@ -426,6 +496,142 @@ $('peopleBody').onclick = async ev => {
   }
   b.disabled = false;
   scheduleRender();
+};
+
+// ================= Candidates & invites =================
+let cands = [], shown = [], selected = new Set(), lastIdx = null, candLoaded = false;
+
+$('tabSess').onclick = () => switchView('sess');
+$('tabCand').onclick = () => switchView('cand');
+
+function switchView(v) {
+  $('sessView').classList.toggle('hidden', v !== 'sess');
+  $('candView').classList.toggle('hidden', v !== 'cand');
+  $('tabSess').className = v === 'sess' ? 'on' : '';
+  $('tabCand').className = v === 'cand' ? 'on' : '';
+  if (v === 'cand' && !candLoaded) loadCands();
+}
+
+function candMsg(text, bad) { $('candMsg').textContent = text; $('candMsg').className = bad ? 'bad' : 'muted'; }
+
+async function loadCands() {
+  candMsg('Loading…');
+  const r = await api('listCandidates');
+  if (!r.ok) return candMsg('Could not load candidates.', true);
+  cands = r.items; candLoaded = true;
+  const ids = new Set(cands.map(c => c.id));
+  selected = new Set([...selected].filter(id => ids.has(id)));
+  $('quotaPill').textContent = 'Emails left today: ' + Math.max(0, r.quota - r.keep) + ' (' + r.keep + ' kept for laptop codes)';
+  candMsg('');
+  renderCands();
+}
+
+function matchesFilter(c, f) {
+  if (f === 'notinvited') return c.status === 'ACTIVE' && !c.invited && !c.queued;
+  if (f === 'queued') return c.queued && !c.invited;
+  if (f === 'invited') return !!c.invited;
+  if (f === 'notlinked') return !!c.invited && !c.linked;
+  if (f === 'blocked') return c.status !== 'ACTIVE';
+  return true;
+}
+
+function renderCands() {
+  const term = $('candSearch').value.trim().toLowerCase();
+  const f = $('candFilter').value;
+  shown = cands.filter(c => matchesFilter(c, f) &&
+    (!term || c.name.toLowerCase().includes(term) || c.email.toLowerCase().includes(term) || c.id.toLowerCase().includes(term)));
+  $('candCount').textContent = cands.length;
+  $('candBody').innerHTML = shown.map((c, i) => {
+    const st = c.status === 'ACTIVE' ? '<span class="tag ok">Active</span>' : '<span class="tag bad">' + esc(c.status || 'Blocked') + '</span>';
+    const inv = c.invited ? '<span class="tag ok">Sent ' + esc(c.invited) + '</span>'
+      : c.queued ? '<span class="tag wait">Queued</span>' : '<span class="tag">Not invited</span>';
+    const lap = c.linked ? '<span class="tag ok">Verified</span>' : '<span class="muted">–</span>';
+    const on = selected.has(c.id);
+    return '<tr class="' + (on ? 'sel' : '') + '"><td><input type="checkbox" data-i="' + i + '"' + (on ? ' checked' : '') + '></td>' +
+      '<td>' + esc(c.id) + '</td><td>' + esc(c.name) + '</td><td class="email">' + esc(c.email) + '</td>' +
+      '<td>' + st + '</td><td>' + inv + '</td><td>' + lap + '</td></tr>';
+  }).join('') || '<tr><td colspan="7" class="muted">No candidates match.</td></tr>';
+  $('selAll').checked = shown.length > 0 && shown.every(c => selected.has(c.id));
+  $('selCount').textContent = selected.size + ' selected';
+}
+
+$('candSearch').oninput = () => { lastIdx = null; renderCands(); };
+$('candFilter').onchange = () => { lastIdx = null; renderCands(); };
+$('btnReload').onclick = loadCands;
+$('btnClearSel').onclick = () => { selected.clear(); renderCands(); };
+
+$('candBody').onclick = ev => {
+  const box = ev.target.closest('input[type=checkbox]'); if (!box) return;
+  const i = Number(box.dataset.i);
+  if (ev.shiftKey && lastIdx !== null) {
+    const [a, b] = [Math.min(lastIdx, i), Math.max(lastIdx, i)];
+    for (let k = a; k <= b; k++) { if (box.checked) selected.add(shown[k].id); else selected.delete(shown[k].id); }
+  } else {
+    if (box.checked) selected.add(shown[i].id); else selected.delete(shown[i].id);
+  }
+  lastIdx = i;
+  renderCands();
+};
+
+$('selAll').onclick = () => {
+  const all = $('selAll').checked;
+  shown.forEach(c => { if (all) selected.add(c.id); else selected.delete(c.id); });
+  renderCands();
+};
+
+$('btnPick').onclick = () => {
+  const n = Math.max(1, Number($('pickN').value) || 0);
+  let added = 0;
+  for (const c of cands) {
+    if (added >= n) break;
+    if (matchesFilter(c, 'notinvited') && !selected.has(c.id)) { selected.add(c.id); added++; }
+  }
+  renderCands();
+  candMsg(added + ' not-yet-invited candidates selected.');
+};
+
+async function candAction(action, confirmText, extra, done) {
+  const ids = [...selected];
+  if (!ids.length) return candMsg('Select candidates first.', true);
+  if (!confirm(confirmText.replace('{n}', ids.length))) return;
+  document.querySelectorAll('#candView button').forEach(b => b.disabled = true);
+  candMsg('Working… (sending many emails can take up to a minute)');
+  try {
+    const r = await api(action, Object.assign({ ids: ids }, extra || {}));
+    if (!r.ok) candMsg(r.error === 'invite_settings_missing' ? 'Invite settings are missing in Apps Script (INVITE_PAGE_URL, APP_DOWNLOAD_URL).' : 'Failed: ' + r.error, true);
+    else { candMsg(done(r)); selected.clear(); await loadCands(); candMsg(done(r)); }
+  } catch (e) { candMsg('Failed: ' + e.message, true); }
+  document.querySelectorAll('#candView button').forEach(b => b.disabled = false);
+}
+
+$('actInvite').onclick = () => candAction('inviteCandidates',
+  'Send invites to {n} selected candidates? Anyone already invited is skipped.', null,
+  r => r.sent + ' invite(s) sent now.' + (r.waiting ? ' ' + r.waiting + ' queued – they will be sent automatically tomorrow morning.' : ''));
+$('actResend').onclick = () => candAction('resendInvites', 'Send the invite email again to {n} candidates?', null,
+  r => r.sent + ' resent.' + (r.skipped ? ' ' + r.skipped + ' skipped (blocked or daily email limit reached).' : ''));
+$('actReset').onclick = () => candAction('resetLaptop',
+  'Reset the laptop link for {n} candidates? They will verify again with an emailed code on their next sign-in.', null,
+  r => r.changed + ' laptop link(s) reset.');
+$('actBlock').onclick = () => candAction('setCandidateStatus', 'Block {n} candidates? They will not be able to join.', { status: 'BLOCKED' },
+  r => r.changed + ' candidate(s) blocked.');
+$('actUnblock').onclick = () => candAction('setCandidateStatus', 'Unblock {n} candidates?', { status: 'ACTIVE' },
+  r => r.changed + ' candidate(s) unblocked.');
+
+$('btnAdd').onclick = async () => {
+  const people = $('addBox').value.split(/\r?\n/).map(line => {
+    const parts = line.split(/[\t,;]/).map(x => x.trim()).filter(Boolean);
+    const email = parts.find(x => x.includes('@'));
+    const name = parts.filter(x => x !== email).join(' ');
+    return email && name ? { name: name, email: email } : null;
+  }).filter(Boolean);
+  if (!people.length) { $('addMsg').textContent = 'Nothing to add – use one "Name, email" per line.'; return; }
+  $('btnAdd').disabled = true; $('addMsg').textContent = 'Adding ' + people.length + '…';
+  const r = await api('addCandidates', { people: people });
+  $('btnAdd').disabled = false;
+  if (!r.ok) { $('addMsg').textContent = 'Failed: ' + r.error; return; }
+  $('addMsg').textContent = r.added + ' added' + (r.skipped ? ', ' + r.skipped + ' skipped (duplicate or invalid email)' : '') + '.';
+  $('addBox').value = '';
+  loadCands();
 };
 </script>
 </body>
